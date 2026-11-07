@@ -1,0 +1,309 @@
+{
+  "name": "Email_Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.emailList }}",
+        "options": {
+          "systemMessage": "You are an email triage assistant. You receive a numbered list of new emails and choose only the ones that deserve an instant phone alert.\n\nMARK IMPORTANT when the email is:\n- from a real person writing to the owner directly (a reply, a question, a request, a contact form message)\n- about a job, internship, interview, program or scholarship application, or school/university matters\n- about money: invoices, payment confirmations or failures, bank or card alerts, refunds, client payments\n- about a deadline, meeting, appointment, delivery problem or something that needs action soon\n- a security alert for an account, or a hosting, domain or website problem\n\nIGNORE:\n- newsletters, promotions, marketing, product updates, automated digests\n- social media or app notifications\n- receipts or confirmations with no problem and no action needed\n- one-time codes, verification codes or password resets the owner just requested\n\nRules:\n- Pick at most 5 emails, most important first.\n- If several emails are about the same thing (same thread, sender or topic), pick only one of them.\n- If none are important, return an empty list.\n\nReturn ONLY valid JSON with no other text, in exactly this format:\n{\"important\": [{\"n\": 3, \"reason\": \"max 12 words explaining why\"}]}\nwhere n is the email's # number from the list."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        896,
+        0
+      ],
+      "id": "cb65c83f-8ac4-402b-a380-dba6633fb9aa",
+      "name": "AI Agent",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "claude-sonnet-5",
+          "cachedResultName": "Claude Sonnet 5"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.6,
+      "position": [
+        896,
+        208
+      ],
+      "id": "f5167554-8e60-440b-b990-b002b8284d15",
+      "name": "Anthropic Chat Model",
+      "credentials": {
+        "anthropicApi": {
+          "id": null,
+          "name": "",
+          "__aiGatewayManaged": true
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "6679476233",
+        "text": "={{ $json.message }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1568,
+        0
+      ],
+      "id": "68713e11-c56b-4ac1-92b9-62ffd8787482",
+      "name": "Send Telegram Alert",
+      "webhookId": "241b89ea-f96e-40fe-acdf-6608c976fc89",
+      "credentials": {
+        "telegramApi": {
+          "id": "StkPKKVu5Psl69Ax",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const emails = $('Build Email List').first().json.emails;\nconst raw = String($json.output || $json.text || '').replace(/```json/gi, '').replace(/```/g, '').trim();\nconst m = raw.match(/\\{[\\s\\S]*\\}/);\nlet picks;\ntry {\n  const v = JSON.parse(m ? m[0] : raw);\n  picks = Array.isArray(v.important) ? v.important : [];\n} catch (e) {\n  picks = emails.slice(0, 3).map(x => ({ n: x.n, reason: 'Could not rank, sent to be safe' }));\n}\nconst clip = (s, n) => { s = String(s || '').replace(/\\s+/g, ' ').trim(); return s.length <= n ? s : s.slice(0, n) + '…'; };\nconst seenThreads = new Set();\nconst lines = [];\nfor (const p of picks) {\n  const e = emails.find(x => x.n === Number(p.n));\n  if (!e || seenThreads.has(e.threadId)) continue;\n  seenThreads.add(e.threadId);\n  lines.push((lines.length + 1) + '. ' + e.subject + '\\n   From: ' + e.from + '\\n   Why: ' + clip(p.reason, 120) + '\\n   🔗 https://mail.google.com/mail/u/0/#all/' + e.threadId);\n  if (lines.length >= 5) break;\n}\nconst message = '📬 Important emails (' + lines.length + ')\\n\\n' + lines.join('\\n\\n');\nreturn { json: { hasImportant: lines.length > 0, count: lines.length, message: message.slice(0, 3800) } };"
+      },
+      "id": "e2e5ca36-09e6-444c-8c31-c4b5ed908c60",
+      "name": "Build Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1168,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "important-check",
+              "leftValue": "={{ $json.hasImportant }}",
+              "operator": {
+                "operation": "true",
+                "singleValue": true,
+                "type": "boolean"
+              },
+              "rightValue": ""
+            }
+          ],
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          }
+        },
+        "options": {}
+      },
+      "id": "f027e06d-1893-4184-a887-454b224da3b4",
+      "name": "Is Important?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1344,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "41a3086a-02d6-484e-afa9-3fcb32fe6f51",
+      "name": "Every 15 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "limit": 10,
+        "filters": {
+          "q": "in:inbox -category:promotions -category:social -category:forums"
+        }
+      },
+      "id": "efe69103-c24f-4fd6-b976-c24e89375ce8",
+      "name": "Get Latest 10 Emails",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        224,
+        0
+      ],
+      "webhookId": "9539b4bb-fe26-4109-9e57-db57b51b6741",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "WHuBk85WEiaOa4A5",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "removeItemsSeenInPreviousExecutions",
+        "dedupeValue": "={{ $json.id }}",
+        "options": {}
+      },
+      "id": "32e94c3f-7f47-4fe6-b9f4-b113300da5d4",
+      "name": "Skip Already Seen",
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const decode = s => String(s || '').replace(/&#39;|&apos;/g, \"'\").replace(/&quot;/g, '\"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');\nconst clip = (s, n) => { s = decode(s).replace(/\\s+/g, ' ').trim(); return s.length <= n ? s : s.slice(0, n) + '…'; };\nconst emails = $input.all().map((it, i) => {\n  const j = it.json;\n  return {\n    n: i + 1,\n    id: j.id,\n    threadId: j.threadId || j.id,\n    from: clip(j.From || '', 80),\n    subject: clip(j.Subject || '(no subject)', 120),\n    snippet: clip(j.snippet, 180)\n  };\n});\nif (!emails.length) return [];\nconst emailList = emails.map(e => '#' + e.n + ' | From: ' + e.from + ' | Subject: ' + e.subject + ' | Preview: ' + e.snippet).join('\\n');\nreturn [{ json: { emails, emailList } }];"
+      },
+      "id": "2bb3cd41-fd63-4a50-a693-a3f48450897b",
+      "name": "Build Email List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Build Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Important?": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Telegram Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Digest": {
+      "main": [
+        [
+          {
+            "node": "Is Important?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 15 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Get Latest 10 Emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Latest 10 Emails": {
+      "main": [
+        [
+          {
+            "node": "Skip Already Seen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Skip Already Seen": {
+      "main": [
+        [
+          {
+            "node": "Build Email List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Email List": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "f66b8e62-dc5a-4cc0-beaf-e94a6b992c84",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "instanceId": "7f22b78904b79f655160464499724b78196292489adc4e3ad650ad51c1e89a9e"
+  },
+  "nodeGroups": [],
+  "id": "mbWfG3ZW5UUQxbB5",
+  "tags": []
+}
